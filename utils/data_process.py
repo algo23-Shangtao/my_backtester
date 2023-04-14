@@ -7,8 +7,8 @@ import pandas as pd
 from datetime import datetime
 import os
 
-from object import TickData
-from constant import Exchange
+from datastructure.object import TickData
+from datastructure.constant import Exchange
 
 
 

@@ -1,7 +1,7 @@
 from typing import Callable, Optional, List, Union
-from constant import Interval
-from object import BarData, TickData
-from cta_strategy.base import INTERVAL_DELTA_MAP
+from datastructure.constant import Interval
+from datastructure.object import BarData, TickData
+from datastructure.definition import INTERVAL_DELTA_MAP
 import numpy as np
 import talib
 

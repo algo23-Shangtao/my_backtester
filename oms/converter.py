@@ -1,11 +1,11 @@
 from copy import copy
 from typing import Dict, List, Set, TYPE_CHECKING
 
-from object import ContractData, OrderData, TradeData, PositionData, OrderRequest
-from constant import Direction, Offset, Exchange
+from datastructure.object import ContractData, OrderData, TradeData, PositionData, OrderRequest
+from datastructure.constant import Direction, Offset, Exchange
 
 if TYPE_CHECKING:
-    from engine import MainEngine
+    from core.engine import MainEngine
 
 
 class PositionHolding:

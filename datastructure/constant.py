@@ -68,3 +68,19 @@ class Interval(Enum):
     MINUTE = "1m"
     DAILY = 'd'
     TICK = "tick"
+
+class StopOrderStatus(Enum):
+    '''
+    Stop Order: 止损单, 价格达到某设定值时, 转化为委托(订单)(?)
+    '''
+    WAITING = "等待中"
+    CANCELLED = "已撤销"
+    TRIGGERED = "已触发"
+
+class EngineType(Enum):
+    LIVE = "实盘"
+    BACKTESTING = "回测"
+
+class BacktestingMode(Enum):
+    BAR = 1
+    TICK = 2

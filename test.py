@@ -1,9 +1,9 @@
-from database import get_database
-from constant import Exchange, Interval
+from db.database import get_database
+from datastructure.constant import Exchange, Interval
 from datetime import datetime
 import numpy as np
-from cta_strategy.backtesting_engine import BacktestingEngine
-from cta_strategy.strategy import DoubleMaStrategy
+from core.backtesting_engine import BacktestingEngine
+from strategy.strategy import DoubleMaStrategy
 
 
 

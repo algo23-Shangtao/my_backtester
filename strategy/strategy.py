@@ -1,7 +1,6 @@
 from .template import CtaTemplate
-from .base import StopOrder
-from object import TickData, BarData, OrderData, TradeData
-from utils_class import BarGenerator, ArrayManager
+from datastructure.object import TickData, BarData, OrderData, TradeData, StopOrder
+from utils.utils_class import BarGenerator, ArrayManager
 
 class DoubleMaStrategy(CtaTemplate):
     author = ''

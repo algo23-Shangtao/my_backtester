@@ -11,17 +11,16 @@ from threading import Thread
 from typing import Any, Type, Dict, List, Optional
 
 from event import Event, EventEngine
-from app import BaseApp
 from event import (EVENT_TICK, EVENT_ORDER, EVENT_TRADE, EVENT_POSITION, 
                    EVENT_ACCOUNT, EVENT_CONTRACT, EVENT_LOG, EVENT_QUOTE)
-from gateway import BaseGateway
-from object import (CancelRequest, LogData, OrderRequest, QuoteData, 
+from gateway.gateway import BaseGateway
+from datastructure.object import (CancelRequest, LogData, OrderRequest, QuoteData, 
                     QuoteRequest, SubscribeRequest, HistoryRequest, 
                     OrderData, BarData, TickData, TradeData, PositionData, 
                     AccountData, ContractData, Exchange)
-from setting import SETTING
-from utils_function import get_folder_path, TRADER_DIR
-from converter import OffsetConverter
+from datastructure.setting import SETTING
+from utils.utils_function import get_folder_path, TRADER_DIR
+from oms.converter import OffsetConverter
 
 class BaseEngine(ABC):
     '''
@@ -417,7 +416,6 @@ class MainEngine:
 
         self.gateways: Dict[str, BaseGateway] = {}
         self.engines: Dict[str, BaseEngine] = {}
-        self.apps: Dict[str, BaseApp] = {}
         self.exchanges: List[Exchange] = []
         # 改变工作路径到指定工作路径
         os.chdir(TRADER_DIR)
@@ -441,11 +439,6 @@ class MainEngine:
                 self.exchanges.append(exchange)
         return gateway
     
-    def add_app(self, app_class: Type[BaseApp]) -> BaseEngine:
-        app: BaseApp = app_class()
-        self.apps[app.app_name] = app
-        engine: BaseEngine = self.add_engine(app.engine_class)
-        return engine
     
     # 初始化就这?
     def init_engines(self) -> None:
@@ -495,12 +488,6 @@ class MainEngine:
         Get all names of gateway added in main engine.
         """
         return list(self.gateways.keys())
-
-    def get_all_apps(self) -> List[BaseApp]:
-        """
-        Get all app objects.
-        """
-        return list(self.apps.values())
 
     def get_all_exchanges(self) -> List[Exchange]:
         """

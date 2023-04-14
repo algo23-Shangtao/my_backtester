@@ -6,9 +6,7 @@ from datetime import datetime
 from logging import INFO
 
 from constant import *
-
-ACTIVE_STATUSES = set([Status.SUBMITTING, Status.NOTTRADED, Status.PARTTRADED])
-
+from definition import  ACTIVE_STATUSES
 @dataclass
 class BaseData:
     '''
@@ -139,6 +137,21 @@ class OrderData(BaseData):
         return req
 
 @dataclass
+class StopOrder(BaseData):
+    vt_symbol: str
+    direction: Direction
+    offset: Offset
+    price: float
+    volume: float
+    stop_orderid: str
+    # strategy_name: str
+    datetime: datetime
+    lock: bool = False
+    net: bool = False
+    # vt_orderids: list = field(default_factory=list)
+    status: StopOrderStatus = StopOrderStatus.WAITING
+
+@dataclass
 class QuoteData(BaseData): # ? order是普通投资者用的委托指令，quote则是做市商才会用到的双边报价指令，一般忽略即可
     """
     Quote data contains information for tracking lastest status
@@ -170,14 +183,14 @@ class QuoteData(BaseData): # ? order是普通投资者用的委托指令，quote
         """
         return self.status in ACTIVE_STATUSES
 
-    # def create_cancel_request(self) -> "CancelRequest":
-    #     """
-    #     Create cancel request object from quote.
-    #     """
-    #     req: CancelRequest = CancelRequest(
-    #         orderid=self.quoteid, symbol=self.symbol, exchange=self.exchange
-    #     )
-    #     return req
+    def create_cancel_request(self) -> "CancelRequest":
+        """
+        Create cancel request object from quote.
+        """
+        req: CancelRequest = CancelRequest(
+            orderid=self.quoteid, symbol=self.symbol, exchange=self.exchange
+        )
+        return req
 
 
 @dataclass

@@ -3,12 +3,11 @@ from abc import ABC, abstractmethod
 from copy import copy
 from typing import Any, Callable, List
 
-from constant import Interval, Direction, Offset
-from object import BarData, TickData, OrderData, TradeData
+from datastructure.constant import Interval, Direction, Offset, EngineType
+from datastructure.object import BarData, TickData, OrderData, TradeData, StopOrder
 # from utility import virtual
 
-from .base import StopOrder, EngineType
-from .backtesting_engine import BacktestingEngine
+from core.backtesting_engine import BacktestingEngine
 
 class CtaTemplate(ABC):
     '''

@@ -6,7 +6,7 @@ from typing import Tuple, Callable
 from pathlib import Path
 from decimal import Decimal
 
-from constant import Exchange
+from datastructure.constant import Exchange
 
 import json
 
@@ -76,8 +76,7 @@ def round_to(value: float, target: float) -> float:
 #     自制的virtual关键字, 示意该函数为纯虚函数
 #     '''
 #     return func
-from constant import Interval
-from object import BarData, TickData
+
 
 
         

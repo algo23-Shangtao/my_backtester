@@ -12,28 +12,18 @@ from pandas import DataFrame, Series
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from constant import (Direction, Offset, Exchange,
+from datastructure.constant import (Direction, Offset, Exchange,
                                   Interval, Status)
-from database import get_database, BaseDatabase
-from object import OrderData, TradeData, BarData, TickData
-from utils_function import round_to
-# from optimize import (
-#     OptimizationSetting,
-#     check_optimization_setting,
-#     run_bf_optimization,
-#     run_ga_optimization
-# )
+from db.database import get_database, BaseDatabase
+from datastructure.object import OrderData, TradeData, BarData, TickData
+from utils.utils_function import round_to
 
-from .base import (
-    BacktestingMode,
-    EngineType,
-    STOPORDER_PREFIX,
-    StopOrder,
-    StopOrderStatus,
-    INTERVAL_DELTA_MAP
-)
+from datastructure.object import StopOrderStatus, StopOrder
+from datastructure.constant import BacktestingMode, EngineType
+from datastructure.definition import STOPORDER_PREFIX, INTERVAL_DELTA_MAP
+
 if TYPE_CHECKING:
-    from .template import CtaTemplate
+    from strategy.template import CtaTemplate
 
 class BacktestingEngine:
     '''

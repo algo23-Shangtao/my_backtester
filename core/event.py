@@ -7,16 +7,17 @@ from typing import Any, Callable, List
 '''
 事件类型
 '''
-EVENT_TICK = "eTick"
-# EVENT_STRATEGY = "eStrategy"
-EVENT_ORDER = "eOrder"
-EVENT_TRADE = "eTrade"
-EVENT_QUOTE = "eQuote"
-EVENT_POSITION = "ePosition"
-EVENT_ACCOUNT = "eAccount"
-EVENT_CONTRACT = "eContract"
-EVENT_LOG = "eLog"
-# EVENT_TIMER = "eTimer"
+from datastructure.definition import (
+    EVENT_TICK,
+    EVENT_STRATEGY,
+    EVENT_ORDER,
+    EVENT_TRADE,
+    EVENT_QUOTE,
+    EVENT_POSITION,
+    EVENT_ACCOUNT,
+    EVENT_CONTRACT,
+    EVENT_LOG
+)
 
 class Event:
     '''

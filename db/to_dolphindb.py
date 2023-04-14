@@ -6,11 +6,14 @@ import pandas as pd
 import dolphindb as ddb
 import dolphindb.settings as keys
 
-from constant import Exchange, Interval
-from object import BarData, TickData
+from datastructure.constant import Exchange, Interval
+from datastructure.object import BarData, TickData
+from datastructure.setting import SETTING
 from database import BaseDatabase, BarOverview, TickOverview, DB_TZ, convert_tz
-from data_process import history_tickdata_processor
-from setting import SETTING
+
+
+from utils.data_process import history_tickdata_processor
+
 
 from dolphindb_script import CREATE_TICK_DATABASE_SCRIPT, CREATE_TICK_TABLE_SCRIPT, CREATE_TICKOVERVIEW_TABLE_SCRIPT
 
