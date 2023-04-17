@@ -17,8 +17,6 @@ class Offset(Enum):
     '''
     OPEN = "开"
     CLOSE = "平"
-    CLOSETODAY = "平今"
-    CLOSEYESTERDAY = "平昨"
     NONE = "" # 用于初始化
 
 class Status(Enum):
@@ -33,11 +31,6 @@ class Status(Enum):
     CANCELLED = "已撤销"
     REJECTED = "拒单"
 
-class Product(Enum):
-    '''
-    标的品种
-    '''
-    FUTURES = "期货"
 
 class OrderType(Enum):
     '''
@@ -45,7 +38,6 @@ class OrderType(Enum):
     '''
     LIMIT = "限价"
     MARKET = "市价"
-    STOP = "停止"
 
 class Exchange(Enum):
     '''
@@ -58,8 +50,6 @@ class Exchange(Enum):
     INE = "INE"             # Shanghai International Energy Exchange
     GFEX = "GFEX"           # Guangzhou Futures Exchange
 
-    # Special Function
-    LOCAL = "LOCAL"         # For local generated data
 
 class Interval(Enum):
     '''
@@ -69,18 +59,3 @@ class Interval(Enum):
     DAILY = 'd'
     TICK = "tick"
 
-class StopOrderStatus(Enum):
-    '''
-    Stop Order: 止损单, 价格达到某设定值时, 转化为委托(订单)(?)
-    '''
-    WAITING = "等待中"
-    CANCELLED = "已撤销"
-    TRIGGERED = "已触发"
-
-class EngineType(Enum):
-    LIVE = "实盘"
-    BACKTESTING = "回测"
-
-class BacktestingMode(Enum):
-    BAR = 1
-    TICK = 2

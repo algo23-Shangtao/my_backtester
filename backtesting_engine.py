@@ -4,7 +4,7 @@ Cta回测引擎
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Callable, List, Dict, Optional, Type, TYPE_CHECKING
-from functools import lru_cache, partial
+from functools import lru_cache
 import traceback
 
 import numpy as np
@@ -14,26 +14,26 @@ from plotly.subplots import make_subplots
 
 from datastructure.constant import (Direction, Offset, Exchange,
                                   Interval, Status)
-from db.database import get_database, BaseDatabase
+from db.database import get_database
 from datastructure.object import OrderData, TradeData, BarData, TickData
 from utils.utils_function import round_to
 
-from datastructure.object import StopOrderStatus, StopOrder
 from datastructure.constant import BacktestingMode, EngineType
-from datastructure.definition import STOPORDER_PREFIX, INTERVAL_DELTA_MAP
+from datastructure.definition import INTERVAL_DELTA_MAP
 
 if TYPE_CHECKING:
     from strategy.template import CtaTemplate
 
 class BacktestingEngine:
     '''
-    回测核心引擎(?)
+    事件驱动型回测类
     '''
     engine_type: EngineType = EngineType.BACKTESTING
     gateway_name: str = "BACKTESTING"
 
     def __init__(self) -> None:
         '''构造函数--但backtesting engine并没有真正初始化'''
+        ''''''
         # 目标合约 # set_parameters
         self.vt_symbol: str = ""
         self.symbol: str = ""               # 单合约择时策略(?)
@@ -58,14 +58,12 @@ class BacktestingEngine:
         self.callback: Callable = None # strategy.on_bar
         # 历史数据集 # load_data
         self.history_data: list = []
+        '''OmsEngine'''
         # 记录最新行情更新事件market event
         self.tick: TickData
         self.bar: BarData
         self.datetime: datetime = None
         # 记录order & trade
-        self.stop_order_count: int = 0
-        self.stop_orders: Dict[str, StopOrder] = {}
-        self.active_stop_orders: Dict[str, StopOrder] = {}
         self.limit_order_count: int = 0
         self.limit_orders: Dict[str, OrderData] = {}
         self.active_limit_orders: Dict[str, OrderData] = {}
@@ -196,20 +194,6 @@ class BacktestingEngine:
         ix: int = 0
         # 4.2 遍历前self.days天的历史数据, 对于每天的数据, 调用callback, 用于初始化策略
         
-        #### 以下为vnpy源码
-        # for ix, data in enumerate(self.history_data):
-        #     if self.datetime and data.datetime.day != self.datetime.day:#### TODO wtf?
-        #         day_count += 1
-        #         if day_count >= self.days:
-        #             break
-        #     self.datetime = data.datetime
-        #     try:
-        #         self.callback(data)
-        #     except Exception:
-        #         self.output("触发异常, 回测终止")
-        #         self.output(traceback.format_exc())
-        #         return
-        
         # 用第一个历史数据的时间戳初始化当前时间戳(self.datetime)
         if not self.datetime:
             self.datetime = self.history_data[0].datetime
@@ -277,7 +261,6 @@ class BacktestingEngine:
         self.datetime = bar.datetime
         # 模拟交易所撮合订单
         self.cross_limit_order()
-        self.cross_stop_order()
         # 策略根据最新行情产生信号
         self.strategy.on_bar(bar)
         # 行情更新, 计算仓位和pnl
@@ -294,7 +277,6 @@ class BacktestingEngine:
         self.datetime = tick.datetime
         # 模拟交易所撮合订单
         self.cross_limit_order()
-        self.cross_stop_order()
         # 策略根据最新行情产生信号
         self.strategy.on_tick(tick)
         # 行情更新, 计算仓位和pnl
@@ -376,94 +358,6 @@ class BacktestingEngine:
             self.strategy.on_trade(trade)
             self.trades[trade.vt_tradeid] = trade
         
-    def cross_stop_order(self) -> None:
-        #### 好像也有bug????
-        """
-        Cross stop order with last bar/tick data.
-        """
-        if self.mode == BacktestingMode.BAR:
-            long_cross_price = self.bar.high_price
-            short_cross_price = self.bar.low_price
-            long_best_price = self.bar.open_price
-            short_best_price = self.bar.open_price
-        else:
-            long_cross_price = self.tick.last_price
-            short_cross_price = self.tick.last_price
-            long_best_price = long_cross_price
-            short_best_price = short_cross_price
-
-        for stop_order in list(self.active_stop_orders.values()):
-            # Check whether stop order can be triggered.
-            long_cross: bool = (
-                stop_order.direction == Direction.LONG
-                and stop_order.price <= long_cross_price
-            )
-
-            short_cross: bool = (
-                stop_order.direction == Direction.SHORT
-                and stop_order.price >= short_cross_price
-            )
-
-            if not long_cross and not short_cross:
-                continue
-
-            # Create order data.
-            self.limit_order_count += 1
-
-            order: OrderData = OrderData(
-                symbol=self.symbol,
-                exchange=self.exchange,
-                orderid=str(self.limit_order_count),
-                direction=stop_order.direction,
-                offset=stop_order.offset,
-                price=stop_order.price,
-                volume=stop_order.volume,
-                traded=stop_order.volume,
-                status=Status.ALLTRADED,
-                gateway_name=self.gateway_name,
-                datetime=self.datetime
-            )
-
-            self.limit_orders[order.vt_orderid] = order
-
-            # Create trade data.
-            if long_cross:
-                trade_price = max(stop_order.price, long_best_price)
-                pos_change = order.volume
-            else:
-                trade_price = min(stop_order.price, short_best_price)
-                pos_change = -order.volume
-
-            self.trade_count += 1
-
-            trade: TradeData = TradeData(
-                symbol=order.symbol,
-                exchange=order.exchange,
-                orderid=order.orderid,
-                tradeid=str(self.trade_count),
-                direction=order.direction,
-                offset=order.offset,
-                price=trade_price,
-                volume=order.volume,
-                datetime=self.datetime,
-                gateway_name=self.gateway_name,
-            )
-
-            self.trades[trade.vt_tradeid] = trade
-
-            # Update stop order.
-            stop_order.vt_orderids.append(order.vt_orderid)
-            stop_order.status = StopOrderStatus.TRIGGERED
-
-            if stop_order.stop_orderid in self.active_stop_orders:
-                self.active_stop_orders.pop(stop_order.stop_orderid)
-
-            # Push update to strategy.
-            self.strategy.on_stop_order(stop_order)
-            self.strategy.on_order(order)
-
-            self.strategy.pos += pos_change
-            self.strategy.on_trade(trade)
 
     def update_daily_close(self, price: float) -> None:
         '''更新盯市盈亏'''
@@ -486,27 +380,9 @@ class BacktestingEngine:
                    lock: bool,
                    net: bool) -> list:
         price: float = round_to(price, self.pricetick)
-        if stop:
-            vt_orderid: str = self.send_stop_order(direction, offset, price, volume)
-        else:
-            vt_orderid: str = self.send_limit_order(direction, offset, price, volume)
+        vt_orderid: str = self.send_limit_order(direction, offset, price, volume)
         return [vt_orderid]
 
-    def send_stop_order(self, direction: Direction, offset: Offset, price: float, volume: float) -> str:
-        self.stop_order_count += 1
-        stop_order: StopOrder = StopOrder(
-            vt_symbol=self.vt_symbol,
-            direction=direction,
-            offset=offset,
-            price=price,
-            volume=volume,
-            stop_orderid=f"{STOPORDER_PREFIX}.{self.stop_order_count}",
-            datetime=self.datetime,
-            strategy_name = self.strategy.strategy_name
-        )
-        self.active_stop_orders[stop_order.stop_orderid] = stop_order
-        
-        return stop_order.stop_orderid
     
     def send_limit_order(self, direction: Direction, offset: Offset, price: float, volume: float) -> str:
         self.limit_order_count += 1
@@ -530,19 +406,8 @@ class BacktestingEngine:
         """
         Cancel order by vt_orderid.
         """
-        if vt_orderid.startswith(STOPORDER_PREFIX):
-            self.cancel_stop_order(strategy, vt_orderid)
-        else:
-            self.cancel_limit_order(strategy, vt_orderid)
+        self.cancel_limit_order(strategy, vt_orderid)
 
-    def cancel_stop_order(self, strategy: "CtaTemplate", vt_orderid: str) -> None:
-        """"""
-        if vt_orderid not in self.active_stop_orders:
-            return
-        stop_order: StopOrder = self.active_stop_orders.pop(vt_orderid)
-
-        stop_order.status = StopOrderStatus.CANCELLED
-        self.strategy.on_stop_order(stop_order)
 
     def cancel_limit_order(self, strategy: "CtaTemplate", vt_orderid: str) -> None:
         """"""
@@ -560,10 +425,6 @@ class BacktestingEngine:
         vt_orderids: list = list(self.active_limit_orders.keys())
         for vt_orderid in vt_orderids:
             self.cancel_limit_order(strategy, vt_orderid)
-
-        stop_orderids: list = list(self.active_stop_orders.keys())
-        for vt_orderid in stop_orderids:
-            self.cancel_stop_order(strategy, vt_orderid)
 
 
 
@@ -917,10 +778,6 @@ class BacktestingEngine:
         self.tick: TickData = None
         self.bar: BarData = None
         self.datetime: datetime = None
-        
-        self.stop_order_count: int = 0
-        self.stop_orders: Dict[str, StopOrder] = {}
-        self.active_stop_orders: Dict[str, StopOrder] = {}
 
         self.limit_order_count: int = 0
         self.limit_orders: Dict[str, OrderData] = {}

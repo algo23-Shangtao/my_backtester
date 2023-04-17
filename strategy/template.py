@@ -4,10 +4,10 @@ from copy import copy
 from typing import Any, Callable, List
 
 from datastructure.constant import Interval, Direction, Offset, EngineType
-from datastructure.object import BarData, TickData, OrderData, TradeData, StopOrder
-# from utility import virtual
+from datastructure.object import BarData, TickData, OrderData, TradeData, OrderRequest
+from oms.omsEngine import OmsEngine
 
-from core.backtesting_engine import BacktestingEngine
+# from core.backtesting_engine import BacktestingEngine
 
 class CtaTemplate(ABC):
     '''
@@ -19,11 +19,11 @@ class CtaTemplate(ABC):
 
     def __init__(
             self, 
-            cta_engine: Any, 
+            oms_engine: Any, 
             strategy_name: str, 
             vt_symbol: str, 
             setting: dict) -> None:
-        self.cta_engine: BacktestingEngine = cta_engine
+        self.oms_engine: OmsEngine = oms_engine
         self.strategy_name: str = strategy_name
         self.vt_symbol: str = vt_symbol
 
@@ -37,9 +37,8 @@ class CtaTemplate(ABC):
         self.variables.insert(1, "trading")
         self.variables.insert(2, "pos")
 
-        self.update_setting(setting)
 
-    #### TODO 什么玩意???????用于策略初始化参数
+    #### TODO 用于策略初始化参数
     def load_bar(
             self,
             days: int,
@@ -120,13 +119,6 @@ class CtaTemplate(ABC):
         回调函数: 处理新的OrderData
         """
         pass
-
-    @abstractmethod
-    def on_stop_order(self, stop_order: StopOrder) -> None:
-        """
-        回调函数: 处理新的StopOrder
-        """
-        pass
     
     # 快捷下单指令
     def buy(self, 
@@ -185,12 +177,7 @@ class CtaTemplate(ABC):
         调用cta_engine, 执行下单指令
         '''
         ####TODO self.trading干嘛用的
-        if self.trading:
-            # 套娃呢在这你调我我调你
-            vt_orderids: list = self.cta_engine.send_order(self, direction, offset, price, volume, stop, lock, net)
-            return vt_orderids
-        else:
-            return []
+        req: OrderRequest = self.oms_engine.generate_order_request(self, direction, offset, price, volume)
         
     def cancel_order(self, vt_orderid: str) -> None:
         '''
@@ -212,15 +199,6 @@ class CtaTemplate(ABC):
         '''
         self.cta_engine.write_log(msg, self)
 
-    def update_setting(self, setting: dict) -> None:
-        '''
-        用setting中的值更新该策略类的参数值
-        '''        
-        if not setting:
-            return
-        for name in self.parameters:
-            if name in setting:
-                setattr(self, name, setting[name])
     
     # 以下为查询函数
     @classmethod

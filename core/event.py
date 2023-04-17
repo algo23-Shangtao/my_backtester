@@ -35,12 +35,9 @@ class EventEngine:
     1.事件处理引擎, 注册回调函数 & 产生并处理事件
     (2.产生timer event用于记时(interval, 默认为1秒))
     '''
-    def __init__(self, interval: int = 1) -> None:
-        # self._interval: int = interval
+    def __init__(self) -> None:
         self._queue: Queue = Queue()
         self._active: bool = False # 是否启动引擎
-        # self._thread: Thread = Thread(target=self._run)
-        # self._timer: Thread = Thread(target=self._run_timer)
         self._handlers: defaultdict = defaultdict(list) # dict[event_type, handler_list]
         self._general_handlers: List = []
 
@@ -90,7 +87,7 @@ class EventEngine:
         '''
         注册处理某事件的回调函数
         '''
-        handler_list = self._handlers[type]
+        handler_list: List = self._handlers[type]
         if handler not in handler_list:
             handler_list.append(handler)
 

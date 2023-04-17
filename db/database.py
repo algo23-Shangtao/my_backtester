@@ -3,26 +3,14 @@
 '''
 from abc import ABC, abstractmethod
 from datetime import datetime
-from types import ModuleType
 from typing import List
 from dataclasses import dataclass
-from importlib import import_module
 
 from datastructure.constant import Interval, Exchange
 from datastructure.object import BarData, TickData
 from datastructure.setting import SETTING
 
-from zoneinfo import ZoneInfo
 
-#TODO: 没有考虑时区管理
-DB_TZ = ZoneInfo(SETTING["database.timezone"])
-
-def convert_tz(dt: datetime) -> datetime:
-    '''
-    将输入时间转为当前(db?)所在时区
-    '''
-    dt: datetime = dt.astimezone(DB_TZ)
-    return dt.replace(tzinfo=None)
 
 @dataclass
 class BarOverview:
@@ -108,7 +96,6 @@ class BaseDatabase(ABC): # 提供2个合约、日bar 分钟bar tick
         '''
         pass
 
-# 创建database全局变量
 database: BaseDatabase = None
 
 def get_database() -> BaseDatabase:
@@ -120,15 +107,12 @@ def get_database() -> BaseDatabase:
     if database:
         return database
     
-    db_name: str = SETTING["database.name"]
-    module_name = "to_" + db_name
-    # try to import database module, 还能这样import ?!
     try:
-        module: ModuleType = import_module(module_name)
+        from .to_dolphindb import Database
     except ModuleNotFoundError:
         print("不支持此数据库")
         return None
     
-    database = module.Database()
+    database = Database()
     return database
 
