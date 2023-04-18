@@ -7,8 +7,8 @@ class Direction(Enum):
     '''
     订单、成交、持仓的方向
     '''
-    LONG = "多"
-    SHORT = "空"
+    LONG = 1
+    SHORT = -1
     # NET = "净"
 
 class Offset(Enum):
@@ -18,6 +18,13 @@ class Offset(Enum):
     OPEN = "开"
     CLOSE = "平"
     NONE = "" # 用于初始化
+
+class PosDate(Enum):
+    '''
+    昨仓or今仓
+    '''
+    YESTERDAY = 'y'
+    TODAY = 't'
 
 class Status(Enum):
     '''

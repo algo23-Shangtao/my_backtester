@@ -5,9 +5,9 @@ from core.engine import BaseEngine
 from core.event import EventEngine
 from datastructure.object import TickData, SignalData, BarData, OrderData, TradeData, ContractData, SubscribeRequest
 from datastructure.constant import Exchange
-from strategy.strategy import CtaTemplate, DoubleMaStrategy
-from gw.to_backtest import BaseGateway, BacktestGateway
+from reference.strategy import CtaTemplate, DoubleMaStrategy
 from oms.omsEngine import OmsEngine
+from gw.gateway import BaseGateway
 from exchange.simExchange import SimExchange
 
 
@@ -20,7 +20,7 @@ class BacktestEngine(BaseEngine):
 
         # 回测系统组件
         
-        self.gateway: BaseGateway = BacktestGateway(self.event_engine)
+        self.gateway: BaseGateway = BaseGateway(self.event_engine)
         self.exchange: SimExchange = SimExchange(self.event_engine, self.gw)
         self.strategy: CtaTemplate = DoubleMaStrategy(self.gw)
         self.oms: OmsEngine = OmsEngine(self.event_engine)
@@ -49,10 +49,26 @@ class BacktestEngine(BaseEngine):
         self.datetime: datetime = None
         
 
-    def subscribe(self, symbol: str, exchange: Exchange) -> None:
-        req: SubscribeRequest = SubscribeRequest(symbol, exchange)
-        self.gateway.subscribe(req)
-    
+from core.event import EventEngine, Event
+from gw.gateway import BaseGateway
+from exchange.simExchange import SimExchange
+from datetime import datetime
+from datastructure.definition import EVENT_TICK
+from datastructure.constant import Exchange
+from datastructure.object import TickData
+
+event_engine = EventEngine()
+sim_exchange = SimExchange(event_engine, datetime(2023,1,3), datetime(2023,1,4))
+
+def print_tick(event: Event) -> None:
+    tick: TickData = event.data
+    print(tick.last_price)
+
+event_engine.register(EVENT_TICK, print_tick)
+sim_exchange.load_history_data('rb2305', Exchange("SHFE"))
+while True:
+    sim_exchange.publish_md()
+    event_engine.start()
     
 
         

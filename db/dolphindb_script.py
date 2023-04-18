@@ -31,3 +31,5 @@ overview_type = [SYMBOL, SYMBOL, INT, NANOTIMESTAMP, NANOTIMESTAMP, NANOTIMESTAM
 tickoverview = table(1:0, overview_columns, overview_type)
 db.createPartitionedTable(tickoverview, "tickoverview", partitionColumns=["datetime"], sortColumns=["symbol", "exchange", "datetime"], keepDuplicates=LAST)
 '''
+
+# 创建contractinfo数据表

@@ -1,9 +1,9 @@
-from .template import CtaTemplate
+
 from datastructure.object import TickData, BarData, OrderData, TradeData, StopOrder
 from utils.utils_class import BarGenerator, ArrayManager
 
-class DoubleMaStrategy(CtaTemplate):
-    author = ''
+class DoubleMaStrategy:
+    
     parameters = ["fast_window", "slow_window"]
     variables = ["fast_ma0", "fast_ma1", "slow_ma0", "slow_ma1"]
 

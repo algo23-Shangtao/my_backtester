@@ -115,7 +115,6 @@ class history_tickdata_processor: ##待完善
         TickData_list: list[TickData] = []
         for index, row in df.iterrows():
             data: TickData = TickData(
-                gateway_name="local",
                 symbol=row['symbol'],
                 exchange=Exchange(row['exchange']),
                 datetime=row['datetime'],

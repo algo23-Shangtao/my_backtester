@@ -23,8 +23,7 @@ class BaseEngine(ABC):
     def __init__(self, event_engine: EventEngine, engine_name: str) -> None:
         self.event_engine: EventEngine = event_engine
         self.engine_name: str = engine_name
-    def close(self) -> None:
-        pass
+
 
 
 

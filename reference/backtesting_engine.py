@@ -17,18 +17,16 @@ from datastructure.constant import (Direction, Offset, Exchange,
 from db.database import get_database
 from datastructure.object import OrderData, TradeData, BarData, TickData
 from utils.utils_function import round_to
-
-from datastructure.constant import BacktestingMode, EngineType
 from datastructure.definition import INTERVAL_DELTA_MAP
 
 if TYPE_CHECKING:
-    from strategy.template import CtaTemplate
+    from reference.template import CtaTemplate
 
 class BacktestingEngine:
     '''
     事件驱动型回测类
     '''
-    engine_type: EngineType = EngineType.BACKTESTING
+    
     gateway_name: str = "BACKTESTING"
 
     def __init__(self) -> None:
@@ -48,7 +46,6 @@ class BacktestingEngine:
         self.capital: int = 1_000_000
         self.risk_free: float = 0
         self.annual_days: int = 240
-        self.mode: BacktestingMode = BacktestingMode.TICK
         self.interval: Interval = Interval('tick')      # 时间颗粒度(bar: "1m", "d"; tick: "tick")
         # 执行的策略类 # add_strategy
         self.strategy_class: Type["CtaTemplate"] = None
@@ -100,7 +97,6 @@ class BacktestingEngine:
         capital: int,
         risk_free: float,
         annual_days: int = 240,
-        mode: BacktestingMode = BacktestingMode.TICK,
         ) -> None:
         '''设置目标合约 & 固定参数'''
         # 设置目标合约
@@ -118,7 +114,6 @@ class BacktestingEngine:
         self.capital = capital
         self.risk_free = risk_free
         self.annual_days = annual_days
-        self.mode = mode
         self.interval = interval
     
     # 2. 添加回测的策略
@@ -148,10 +143,7 @@ class BacktestingEngine:
         progress = 0
         while start < self.end:
             end: datetime = min(end, self.end)
-            if self.mode == BacktestingMode.BAR:
-                data: List[BarData] = load_bar_data(self.symbol, self.exchange, self.interval, start, end)
-            else:
-                data: List[TickData] = load_tick_data(self.symbol, self.exchange, start, end)
+            data: List[TickData] = load_tick_data(self.symbol, self.exchange, start, end)
             
             self.history_data.extend(data)
             progress += progress_days / total_days
@@ -222,10 +214,7 @@ class BacktestingEngine:
             return
 
         # 4.3 用剩余数据执行回测
-        if self.mode == BacktestingMode.BAR:
-            func = self.new_bar
-        else:
-            func = self.new_tick
+        func = self.new_tick
         
 
         # 构建进度条, 分批进行回测
@@ -250,21 +239,6 @@ class BacktestingEngine:
         self.strategy.on_stop()
         self.output("回测结束")
 
-    def new_bar(self, bar: BarData) -> None:
-        '''
-        传入最新的BarData
-        根据最新的BarData撮合交易
-        执行策略on bar回调
-        '''
-        # 记录最新行情更新
-        self.bar = bar
-        self.datetime = bar.datetime
-        # 模拟交易所撮合订单
-        self.cross_limit_order()
-        # 策略根据最新行情产生信号
-        self.strategy.on_bar(bar)
-        # 行情更新, 计算仓位和pnl
-        self.update_daily_close(bar.close_price)
     
     def new_tick(self, tick: TickData) -> None:
         '''
@@ -291,16 +265,10 @@ class BacktestingEngine:
 
         '''
         # 由最新行情数据得到成交价
-        if self.mode == BacktestingMode.BAR:
-            long_cross_price = self.bar.low_price # 可成交的买价的下限
-            short_cross_price = self.bar.high_price # 可成交的卖价的上限
-            long_best_price = self.bar.open_price # 真实成交买价
-            short_best_price = self.bar.open_price # 真实成交卖价
-        else:
-            long_cross_price = self.tick.ask_price_1 # 可成交的买价的下限-卖1价
-            short_cross_price = self.tick.bid_price_1 # 可成交的卖价的上限-买1价
-            long_best_price = long_cross_price # 真实成交买价
-            short_best_price = short_cross_price # 真实成交卖价
+        long_cross_price = self.tick.ask_price_1 # 可成交的买价的下限-卖1价
+        short_cross_price = self.tick.bid_price_1 # 可成交的卖价的上限-买1价
+        long_best_price = long_cross_price # 真实成交买价
+        short_best_price = short_cross_price # 真实成交卖价
 
         # 遍历所有active委托
         for order in list(self.active_limit_orders.values()):
@@ -720,11 +688,6 @@ class BacktestingEngine:
         """
         pass
 
-    def get_engine_type(self) -> EngineType:
-        """
-        Return engine type.
-        """
-        return self.engine_type
 
     def get_pricetick(self, strategy: "CtaTemplate") -> float:
         """
@@ -807,17 +770,19 @@ def load_tick_data(symbol: str, exchange: Exchange, start: datetime, end: dateti
 
 
 class DailyResult:
-    '''每日盯市'''
-    def __init__(self, date: date, close_price: float) -> None:
-        self.date: date = date  # 该日日期
-        self.close_price: float = close_price   # 该日收盘价
-        self.pre_close: float = 0               # 前日收盘价
+    """"""
 
-        self.trades: List[TradeData] = []       # 当日成交订单
-        self.trade_count: int = 0               # 当日成交订单数量
-        # ?
-        self.start_pos = 0
-        self.end_pos = 0
+    def __init__(self, date: date, close_price: float) -> None:
+        """"""
+        self.date: date = date
+        self.close_price: float = close_price   # 当日结算价
+        self.pre_close: float = 0               # 昨日结算价
+
+        self.trades: List[TradeData] = []
+        self.trade_count: int = 0
+
+        self.start_pos = 0                      # 昨日
+        self.end_pos = 0                        # 
 
         self.turnover: float = 0
         self.commission: float = 0
@@ -827,40 +792,53 @@ class DailyResult:
         self.holding_pnl: float = 0
         self.total_pnl: float = 0
         self.net_pnl: float = 0
-    
+
     def add_trade(self, trade: TradeData) -> None:
+        """"""
         self.trades.append(trade)
-    
-    def calculate_pnl(self, 
-                      pre_close: float, 
-                      start_pos: float, 
-                      size: int, 
-                      rate: int, 
-                      slippage: float) -> None:
-        '''TODO 逻辑???'''
-        # 对于第一天, 设置其pre_close = 1, 防止除0错误
+
+    def calculate_pnl(
+        self,
+        pre_close: float,
+        start_pos: float,
+        size: int,
+        rate: float,
+        slippage: float
+    ) -> None:
+        """"""
+        # If no pre_close provided on the first day,
+        # use value 1 to avoid zero division error
         if pre_close:
             self.pre_close = pre_close
         else:
             self.pre_close = 1
-        # holding_pnl ? start_pos ?
+
+        # Holding pnl is the pnl from holding position at day start
         self.start_pos = start_pos
         self.end_pos = start_pos
-        self.holding_pnl = self.start_pos * (self.close_price - self.pre_close) * size # 为什么要用start_pos算????????
-        # trading_pnl ? 按净仓算吗
+
+        self.holding_pnl = self.start_pos * (self.close_price - self.pre_close) * size
+
+        # Trading pnl is the pnl from new trade during the day
+        self.trade_count = len(self.trades)
+
         for trade in self.trades:
             if trade.direction == Direction.LONG:
                 pos_change = trade.volume
             else:
                 pos_change = -trade.volume
+
             self.end_pos += pos_change
+
             turnover: float = trade.volume * size * trade.price
-            self.trading_pnl += pos_change * (self.close_price - trade.price)
+            self.trading_pnl += pos_change * \
+                (self.close_price - trade.price) * size
             self.slippage += trade.volume * size * slippage
+
             self.turnover += turnover
             self.commission += turnover * rate
 
+        # Net pnl takes account of commission and slippage cost
         self.total_pnl = self.trading_pnl + self.holding_pnl
-        self.net_pnl = self.total_pnl - self.slippage -self.commission
-
+        self.net_pnl = self.total_pnl - self.commission - self.slippage
 

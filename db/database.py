@@ -7,7 +7,7 @@ from typing import List
 from dataclasses import dataclass
 
 from datastructure.constant import Interval, Exchange
-from datastructure.object import BarData, TickData
+from datastructure.object import BarData, TickData, ContractData
 from datastructure.setting import SETTING
 
 
@@ -95,6 +95,20 @@ class BaseDatabase(ABC): # 提供2个合约、日bar 分钟bar tick
         查看数据库中支持的tick数据(哪些合约)
         '''
         pass
+
+    # @abstractmethod
+    # def save_instrument_info(self, infos: List[ContractData]) -> bool:
+    #     '''
+    #     将合约信息存入数据库
+    #     '''
+    #     pass
+    
+    # @abstractmethod
+    # def load_instrument_info(self, symbol: str, exchange: Exchange) -> ContractData:
+    #     '''
+    #     查看指定合约信息
+    #     '''
+    #     pass
 
 database: BaseDatabase = None
 

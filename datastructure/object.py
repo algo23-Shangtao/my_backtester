@@ -1,15 +1,19 @@
 '''
 数据结构
 '''
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import List
 from logging import INFO
 
 from .constant import *
 from .definition import  ACTIVE_STATUSES
 
+class BaseData:
+    gateway_name: str = ""
+
 @dataclass
-class TickData:
+class TickData(BaseData):
     '''
     Level1 Tick data (snap shot)
     https://maimai.cn/article/detail?fid=1756736735&efid=u70pvigmHhoosM5GRS9x3g
@@ -30,7 +34,7 @@ class TickData:
 
 
 @dataclass
-class BarData:
+class BarData(BaseData):
     """
     Bar data
     """
@@ -50,7 +54,7 @@ class BarData:
 
 
 @dataclass
-class SignalData:
+class SignalData(BaseData):
     '''
     策略产生的信号信息
     '''
@@ -59,11 +63,12 @@ class SignalData:
     datetime: datetime
     direction: Direction
     strength: float
+
     
 
 
 @dataclass
-class OrderData:
+class OrderData(BaseData):
     """
     某委托(order)的最新状态
     """
@@ -72,14 +77,14 @@ class OrderData:
     exchange: Exchange
     orderid: str
 
+    datetime: datetime
     type: OrderType = OrderType.LIMIT
     direction: Direction = None
     offset: Offset = Offset.NONE
-    price: float = 0
-    volume: float = 0
+    order_price: float = 0
+    order_volume: float = 0
     traded: float = 0
     status: Status = Status.SUBMITTING
-    datetime: datetime
     reference: str = "" # ?
     gateway_name: str = ""
 
@@ -100,7 +105,7 @@ class OrderData:
         return req
 
 @dataclass
-class TradeData:
+class TradeData(BaseData):
     """
     成交(trade, fill of order)信息
     One order can have several trade fills.
@@ -110,17 +115,28 @@ class TradeData:
     exchange: Exchange
     orderid: str
     tradeid: str
-    direction: Direction = None
+    datetime: datetime
 
+    direction: Direction = None
     offset: Offset = Offset.NONE
-    price: float = 0
-    volume: float = 0
-    datetime: datetime = None
+    fill_price: float = 0
+    fill_volume: float = 0
+    
     gateway_name: str = ''
 
 
 @dataclass
-class PositionData:
+class PositionRecordData(BaseData):
+    ''''''
+    datetime: datetime
+    volume: float               # 该仓持仓量
+    price: float                # 该仓成交价
+    pnl: float                  # 该仓持仓盈亏
+    pos_date: PosDate           # 该仓为今仓or昨仓
+
+
+@dataclass
+class PositionData(BaseData):
     """
     每只标的的仓位信息
     """
@@ -128,29 +144,44 @@ class PositionData:
     symbol: str
     exchange: Exchange
     direction: Direction
-
-    volume: float = 0
-    frozen: float = 0
-    price: float = 0
-    pnl: float = 0
+    all_volume: float = 0       # 总持仓
+    all_pnl: float = 0          # 持仓盈亏
+    yd_volume: float = 0        # 昨仓
+    td_volume: float = 0        # 今仓
+    available: float = 0        # 可平量
+    average_price: float = 0    # 持仓均价
+    occupying_margin: float = 0 # 占用保证金
     gateway_name: str = ''
+    
+    record_list: List[PositionRecordData] = field(default_factory=list)  # 历史持仓记录
+    
+    def __post_init__(self) -> None:
+        self.positionid: str = f"{self.symbol}.{str(self.direction)}"
+
+
 
 
 @dataclass
-class AccountData:
+class AccountData(BaseData):
     """
     账户信息: 当前余额、冻结金额、可用金额
     """
-
-    accountid: str
-    balance: float = 0
-    frozen: float = 0
-    gateway_name: str = ''
+    stable_equity: float        # 静态权益
+    trade_pnl: float            # 平仓盈亏
+    hold_pnl: float             # 持仓盈亏
+    float_pnl: float            # 浮动盈亏
+    dynamic_equity: float       # 动态权益
+    ocupying_margin: float      # 占用保证金
+    frozen_margin: float        # 冻结保证金
+    frozen_commission: float    # 冻结手续费
+    commission: float           # 手续费(用来记录最近一次委托的手续费)
+    balance: float              # 可用资金
+    
 
 
 
 @dataclass
-class LogData:
+class LogData(BaseData):
     """
     日志信息
     """
@@ -163,16 +194,18 @@ class LogData:
         self.time: datetime = datetime.now()
 
 @dataclass
-class ContractData:
+class ContractData(BaseData):
     """
     每个合约的详细信息
+    平仓手续费: https://zhuanlan.zhihu.com/p/424461900
     """
 
     symbol: str
     exchange: Exchange
-    size: float
-    pricetick: float
-    min_volume: float = 1           # minimum trading volume of the contract
+    size: float                 # 合约乘数
+    pricetick: float            # 最小变动价格
+    margin_rate: float          # 保证金率
+    commission_rate: float      # 手续费率
 
 
 @dataclass
@@ -198,8 +231,8 @@ class OrderRequest:
     direction: Direction
     type: OrderType
     volume: float
-    price: float = 0
-    offset: Offset = Offset.NONE
+    price: float
+    offset: Offset
     # reference: str = ""
 
     def create_order_data(self, orderid: str, gateway_name: str) -> OrderData:
@@ -210,8 +243,8 @@ class OrderRequest:
             type=self.type,
             direction=self.direction,
             offset=self.offset,
-            price=self.price,
-            volume=self.volume,
+            order_price=self.price,
+            order_volume=self.volume,
             gateway_name=gateway_name,
         )
         return order

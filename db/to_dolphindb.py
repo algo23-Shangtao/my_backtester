@@ -227,7 +227,7 @@ class Database(BaseDatabase):
         tb_name: str = self.tb_names['tickoverview_tb']
         db_path: str = self.db_paths['tick_db']
         overview_table = self.session.loadTable(tableName=tb_name, dbPath=db_path)
-        overview_df = overview_table.toDF()
+        overview_df: pd.DataFrame = overview_table.toDF()
         list_of_tickoverview: List[TickOverview] = []
         for index, row in overview_df.iterrows():
             overview: TickOverview = TickOverview(
@@ -242,6 +242,13 @@ class Database(BaseDatabase):
         
 
     
+
+
+
+
+
+
+
 
     def _save_all_history_tickdata(self) -> bool:
         '''

@@ -12,10 +12,7 @@ from datastructure.definition import (
     EVENT_STRATEGY,
     EVENT_ORDER,
     EVENT_TRADE,
-    EVENT_QUOTE,
-    EVENT_POSITION,
-    EVENT_ACCOUNT,
-    EVENT_CONTRACT,
+    EVENT_REQUEST,
     EVENT_LOG
 )
 
