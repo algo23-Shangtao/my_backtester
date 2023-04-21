@@ -770,7 +770,9 @@ def load_tick_data(symbol: str, exchange: Exchange, start: datetime, end: dateti
 
 
 class DailyResult:
-    """"""
+    """
+    https://zhuanlan.zhihu.com/p/267211216
+    """
 
     def __init__(self, date: date, close_price: float) -> None:
         """"""
@@ -781,15 +783,15 @@ class DailyResult:
         self.trades: List[TradeData] = []
         self.trade_count: int = 0
 
-        self.start_pos = 0                      # 昨日
+        self.start_pos = 0                      # 
         self.end_pos = 0                        # 
 
         self.turnover: float = 0
         self.commission: float = 0
         self.slippage: float = 0
 
-        self.trading_pnl: float = 0
-        self.holding_pnl: float = 0
+        self.trading_pnl: float = 0             # 
+        self.holding_pnl: float = 0             # 
         self.total_pnl: float = 0
         self.net_pnl: float = 0
 
@@ -824,19 +826,19 @@ class DailyResult:
 
         for trade in self.trades:
             if trade.direction == Direction.LONG:
-                pos_change = trade.volume
+                pos_change = trade.fill_volume
             else:
-                pos_change = -trade.volume
+                pos_change = -trade.fill_volume
 
             self.end_pos += pos_change
 
-            turnover: float = trade.volume * size * trade.price
-            self.trading_pnl += pos_change * \
-                (self.close_price - trade.price) * size
-            self.slippage += trade.volume * size * slippage
+            turnover: float = trade.fill_volume * size * trade.fill_price # 成交价 × 成交手数 × 合约乘数
+            self.trading_pnl += pos_change * (self.close_price - trade.fill_price) * size
+            
+            self.slippage += trade.fill_volume * size * slippage  # 
 
             self.turnover += turnover
-            self.commission += turnover * rate
+            self.commission += turnover * rate                            # 成交价 × 成交手数 × 合约乘数 × 手续费率
 
         # Net pnl takes account of commission and slippage cost
         self.total_pnl = self.trading_pnl + self.holding_pnl

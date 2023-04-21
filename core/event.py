@@ -1,9 +1,6 @@
 from collections import defaultdict
 from queue import Queue, Empty
 from typing import Any, Callable, List
-# from threading import Thread 
-# from time import sleep
-# 没有考虑多线程, 没有考虑计时器
 '''
 事件类型
 '''

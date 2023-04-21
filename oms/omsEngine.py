@@ -1,13 +1,13 @@
 from abc import ABC
 from pathlib import Path
-from datetime import datetime
-
-from typing import Any, Type, Dict, List
+from datetime import datetime, date
+import pandas as pd
+from typing import Any, Type, Dict, List, Optional
+from collections import defaultdict
 
 from core.event import Event, EventEngine
-from core.event import EVENT_TICK, EVENT_STRATEGY, EVENT_ORDER, EVENT_TRADE, EVENT_REQUEST
+from core.event import EVENT_TICK, EVENT_STRATEGY, EVENT_ORDER, EVENT_TRADE, EVENT_REQUEST, EVENT_LOG
 from core.engine import BaseEngine
-from gw.gateway import BaseGateway
 from datastructure.constant import Direction, Offset, OrderType, Status, PosDate
 from datastructure.object import (CancelRequest, LogData, OrderRequest, 
                                   HistoryRequest, OrderData, TickData, SignalData, 
@@ -20,16 +20,14 @@ class OmsEngine(BaseEngine):
     def __init__(self, event_engine: EventEngine) -> None:
         super(OmsEngine, self).__init__(event_engine, "oms")
         # 内部信息
-        self.contracts: Dict[str, ContractData] = {} # {symbol: contract} # 记录合约信息
-        self.ticks: Dict[str, TickData] = {} # {symbol: tick} # 记录最新的tick
-        self.active_orders: Dict[str, OrderData] = {}
+        self.contract: ContractData
+        self.ticks: List[TickData] = []        # 记录最新的tick
+        self.active_orders: Dict[str, OrderData] = {} # {orderid: order}
         self.orders: Dict[str, OrderData] = {} # {orderid: order} # 记录所有订单
         self.trades: Dict[str, TradeData] = {} # {tradeid: trade} # 记录所有成交
 
         self.positions: Dict[str, PositionData] = {} # {positionid: position}
-        self.account: AccountData = AccountData(accountid='backtestAccount', margin=10000)
-        # 与simExchange互动
-        self.order_reqs: List[OrderRequest] = []
+        self.account: AccountData = AccountData()
         self.register_event()
         
     # 注册回调函数
@@ -41,176 +39,282 @@ class OmsEngine(BaseEngine):
         self.event_engine.register(EVENT_TRADE, self.process_trade_event)
         
 
-    # 各种事件处理逻辑(回调函数实现)
+    
     def process_tick_event(self, event: Event) -> None:
-        """获取Tick Event中的TickData, 存入ticks, 仅存最新的时间, 根据最新行情更新账户信息"""
         tick: TickData = event.data
-        # 更新最新行情信息
-        self.tick_update_ticks(tick)
-        # 更新持仓盈亏
-        self.tick_update_positions(tick)
-        # 更新动态权益和可用资金
-        self.tick_update_account(tick)
-            
-    def tick_update_ticks(self, tick: TickData) -> None:
-        symbol: str = tick.symbol
-        self.ticks[symbol] = tick
-
-    def tick_update_positions(self, tick: TickData) -> None:
-        # 获得行情中有用字段
-        symbol: str = tick.symbol
-        last_price: float = tick.last_price
-        # 获得目标合约的多空仓位
-        long_posid: str = f"{symbol}.1"
-        short_posid: str = f"{symbol}.-1"
-        long_pos: PositionData = self.positions.get(long_posid, None)
-        short_pos: PositionData = self.positions.get(short_posid, None)
-        # 更新多空仓位
-        if long_pos:
-            # 遍历每一笔历史仓位, 计算该仓的持仓盈亏
-            all_pnl = 0
-            for record in long_pos.record_list:
-                record.pnl = (last_price - record.price) * record.volume
-                all_pnl += record.pnl
-            # 更新持仓盈亏
-            long_pos.all_pnl = all_pnl
-        
-        if short_pos:
-            all_pnl = 0
-            for record in short_pos.record_list:
-                record.pnl = -(last_price - record.price) * record.volume
-                all_pnl += record.pnl
-            # 更新持仓盈亏
-            short_pos.all_pnl = all_pnl
-
-    def tick_update_account(self, tick: TickData) -> None:
-        # 遍历所有持仓, 更新账户中持仓盈亏
-        acc = self.account
-        hold_pnl: float = 0
-        float_pnl: float = 0
-        for pos in self.positions.values():
-            hold_pnl += pos.all_pnl
-            # 计算浮动盈亏
-            for record in pos.record_list:
-                if record.pos_date == PosDate.TODAY:
-                    float_pnl += record.pnl
-        acc.hold_pnl = hold_pnl
-        acc.float_pnl = float_pnl
-
-        acc.dynamic_equity = acc.stable_equity + acc.trade_pnl + acc.hold_pnl
-        acc.balance = acc.dynamic_equity - acc.ocupying_margin - acc.frozen_margin - acc.frozen_commission
-
-
+        self.ticks.append(tick)
 
     def process_signal_event(self, event: Event) -> None:
-        '''获取Signal Event中的SignalData, 存入signals, 并根据信号产生下单请求'''
+        signal: SignalData = event.data
+        
+        long_pos: PositionData = self.positions.get(f"{self.contract.symbol}.{Direction.LONG}", None)
+        short_pos: PositionData = self.positions.get(f"{self.contract.symbol}.{Direction.SHORT}", None)
+
+        if signal.direction == Direction.LONG: # 多仓信号
+            if short_pos:   # 平空仓
+                req: OrderRequest = OrderRequest(self.contract.symbol, 
+                                                 self.contract.exchange, 
+                                                 signal.direction, 
+                                                 short_pos.all_volume,
+                                                 self.ticks[-1].last_price,
+                                                 Offset.CLOSE)
+                self.on_order_request(req)
+            if not long_pos:    # 开多仓
+                req: OrderRequest = OrderRequest(self.contract.symbol,
+                                                 self.contract.exchange,
+                                                 signal.direction,
+                                                 1,
+                                                 self.ticks[-1].last_price,
+                                                 Offset.OPEN)
+                self.on_order_request(req)
+        
+        if signal.direction == Direction.SHORT: # 空仓信号
+            if long_pos:    # 平多仓
+                req: OrderRequest = OrderRequest(self.contract.symbol, 
+                                                 self.contract.exchange, 
+                                                 signal.direction, 
+                                                 long_pos.all_volume,
+                                                 self.ticks[-1].last_price,
+                                                 Offset.CLOSE)
+                self.on_order_request(req)
+            if not short_pos:   # 开空仓
+                req: OrderRequest = OrderRequest(self.contract.symbol,
+                                                 self.contract.exchange,
+                                                 signal.direction,
+                                                 1,
+                                                 self.ticks[-1].last_price,
+                                                 Offset.OPEN)
+                self.on_order_request(req)
     
-
-
     def process_order_event(self, event: Event) -> None:
-        """
-        获取Order Event中的OrderData, 更新订单状态;
-        检查订单状态, 维护所有的active订单(active_orders), 存入或踢出;
-        """
         order: OrderData = event.data
-        self.order_update_orders(order)
-        self.order_update_positions(order)
-        self.order_update_account(order)
-    
-    def order_update_orders(self, order: OrderData) -> None:
-        # 更新所有委托单
-        self.orders[order.orderid] = order
-        # 更新未成交单(挂单)
         if order.is_active():
             self.active_orders[order.orderid] = order
-        elif order.orderid in self.active_orders:
+            self.orders[order.orderid] = order
+        else:
             self.active_orders.pop(order.orderid)
-    
-    def order_update_positions(self, order: OrderData) -> None:
-        # 根据订单状态更新持仓信息
-        symbol: str = order.symbol
-        direction: Direction = order.direction
-        offset: Offset = order.offset
-        status: Status = order.status
-        order_volume: float = order.order_volume
-
-        if status == Status.NOTTRADED and offset == Offset.CLOSE: # 平仓--可平量变化
-            if direction == Direction.LONG: # 平空仓
-                short_posid: str = f"{symbol}.-1"
-                short_pos: PositionData = self.positions[short_posid]
-                short_pos.available -= order_volume
-            if direction == Direction.SHORT: # 平多仓
-                long_posid: str = f"{symbol}.1"
-                long_pos: PositionData = self.positions[long_posid]
-                long_pos.available
         
-    def order_update_account(self, order: OrderData) -> None:
-        # 根据订单状态更新账户资金
-        symbol: str = order.symbol
-        direction: Direction = order.direction
-        offset: Offset = order.offset
-        status: Status = order.status
-        order_volume: float = order.order_volume        
-        order_price: float = order.order_price
-        acc:AccountData = self.account
-        contract: ContractData = self.contracts[symbol]
-        margin_rate: float = contract.margin_rate
-        commission_rate: float = contract.commission_rate
-        size: float = contract.size
-        if status == Status.NOTTRADED:
-            acc.frozen_margin: float = order_price * order_volume * size * margin_rate
-            acc.frozen_commission: float = order_price * order_volume * size * commission_rate
-            
-
-        
-
-
-
-
-
-
-    # 手续费计算: https://zhuanlan.zhihu.com/p/424461900
     def process_trade_event(self, event: Event) -> None:
-        """
-        获得Trade Event中的TradeData, 存入trades;
-        根据成交信息更新仓位信息, 账户信息
-        """
         trade: TradeData = event.data
-        self.trades[trade.tradeid] = trade
-        
-        symbol: str = trade.symbol
-        exchange: Exchange = trade.exchange
-        direction: Direction = trade.direction
-        volume: float = trade.volume
-        price: float = trade.price
-        offset: Offset = trade.offset
-        pos: PositionData = self.positions.get(symbol)
-        
-        if not pos: # 新增持仓
-            new_pos: PositionData = PositionData(symbol, exchange, direction, volume, 0, price, 0)
-            
-        else: # 原有持仓
-            last_pos: PositionData = self.positions[symbol]
-            if offset == Offset.OPEN:
-                new_pos: PositionData = PositionData(symbol, exchange, last_pos.direction, last_pos.volume + volume, last_pos.frozen, )
-
-        
-
-        self.positions[symbol] = new_pos
-
-            
-
+        positionid: str = f"{trade.symbol}.{trade.direction}"
+        if trade.offset == Offset.CLOSE:
+            self.positions[positionid].all_volume -= trade.fill_volume
+            if self.positions[positionid].all_volume <= 0:
+                self.positions.pop(positionid)
+        if trade.offset == Offset.OPEN:
+            pos: PositionData = self.positions.get(positionid)
+            if pos:
+                pos.all_volume += trade.fill_volume
+            else:
+                self.positions[positionid] = PositionData(trade.symbol, trade.exchange, trade.direction, trade.fill_volume)
     
-    
-    
+
     
     
     def output(self, msg) -> None:
         print(f"{datetime.now()} omsEngine: {msg}")
         
+    # 以下为向事件队列中放入各种事件
+    def on_event(self, type: str, data: Any = None) -> None:
+        '''
+        向event_engine的事件队列中放入事件
+        '''
+        event: Event = Event(type, data)
+        self.event_engine.put(event)
+    
+    def on_tick(self, tick: TickData) -> None:
+        '''
+        行情更新
+        '''
+        self.on_event(EVENT_TICK, tick)
+        
+
+    def on_trade(self, trade: TradeData) -> None:
+        '''
+        成交更新
+        '''
+        self.on_event(EVENT_TRADE, trade)
+        
+    
+    def on_order(self, order: OrderData) -> None:
+        '''
+        订单状态更新
+        '''
+        self.on_event(EVENT_ORDER, order)
+    
+    def on_order_request(self, order_req: OrderRequest) -> None:
+        '''
+        发送订单请求
+        '''
+        self.on_event(EVENT_REQUEST, order_req)
+
+    def on_log(self, log: LogData) -> None:
+        """
+        向event_engine的事件队列中放入日志记录事件(Log event)
+        """
+        self.on_event(EVENT_LOG, log)
 
 
 
-# balance: 10000, frozen: 0
-# open order req(10元 1手) -> exchange: order_event -> balance: 10000, frozen: 10
-# trade (10yuan, 1shou) -> 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def update_daily_close(self, price: float) -> None:
+        '''更新盯市盈亏'''
+        d: date = self.datetime.date()
+        daily_result: Optional[DailyResult] = self.daily_results.get(d, None)
+        if daily_result:
+            daily_result.close_price = price
+            # daily_result.pre_close在后面更新
+        else:
+            self.daily_results[d] = DailyResult(d, price)
+
+
+
+
+
+
+    def calculate_result(self) -> pd.DataFrame:
+        """"""
+        self.output("开始计算逐日盯市盈亏")
+
+        if not self.trades:
+            self.output("成交记录为空，无法计算")
+            return
+
+        # Add trade data into daily reuslt.
+        for trade in self.trades.values():
+            d: date = trade.datetime.date()
+            daily_result: DailyResult = self.daily_results[d]
+            daily_result.add_trade(trade)
+
+        # Calculate daily result by iteration.
+        pre_close = 0
+        start_pos = 0
+
+        for daily_result in self.daily_results.values():
+            daily_result.calculate_pnl(
+                pre_close,
+                start_pos,
+                self.size,
+                self.rate,
+                self.slippage
+            )
+            pre_close = daily_result.close_price
+            start_pos = daily_result.end_pos
+
+        # Generate dataframe
+        results: defaultdict = defaultdict(list)
+
+        for daily_result in self.daily_results.values():
+            for key, value in daily_result.__dict__.items():
+                results[key].append(value)
+
+        self.daily_df = pd.DataFrame.from_dict(results).set_index("date")
+
+        self.output("逐日盯市盈亏计算完成")
+        return self.daily_df
+
+class DailyResult:
+    """
+    https://zhuanlan.zhihu.com/p/267211216
+    """
+
+    def __init__(self, date: date, close_price: float) -> None:
+        """"""
+        self.date: date = date
+        self.close_price: float = close_price   # 当日结算价
+        self.pre_close: float = 0               # 昨日结算价
+
+        self.trades: List[TradeData] = []
+        self.trade_count: int = 0
+
+        self.start_pos = 0                      # 老仓？
+        self.end_pos = 0                        # 
+
+        self.turnover: float = 0
+        self.commission: float = 0
+        self.slippage: float = 0
+
+        self.trading_pnl: float = 0             # 
+        self.holding_pnl: float = 0             # 
+        self.total_pnl: float = 0
+        self.net_pnl: float = 0
+
+    def add_trade(self, trade: TradeData) -> None:
+        """"""
+        self.trades.append(trade)
+
+    def calculate_pnl(
+        self,
+        pre_close: float,
+        start_pos: float,
+        size: int,
+        rate: float,
+        slippage: float
+    ) -> None:
+        """"""
+        # If no pre_close provided on the first day,
+        # use value 1 to avoid zero division error
+        if pre_close:
+            self.pre_close = pre_close
+        else:
+            self.pre_close = 1
+
+        # Holding pnl is the pnl from holding position at day start
+        self.start_pos = start_pos
+        self.end_pos = start_pos
+
+        self.holding_pnl = self.start_pos * (self.close_price - self.pre_close) * size
+
+        # Trading pnl is the pnl from new trade during the day
+        self.trade_count = len(self.trades)
+
+        for trade in self.trades:
+            if trade.direction == Direction.LONG:
+                pos_change = trade.fill_volume
+            else:
+                pos_change = -trade.fill_volume
+
+            self.end_pos += pos_change
+
+            turnover: float = trade.fill_volume * size * trade.fill_price # 成交价 × 成交手数 × 合约乘数
+            self.trading_pnl += pos_change * (self.close_price - trade.fill_price) * size # ？
+            
+            self.slippage += trade.fill_volume * size * slippage  # 
+
+            self.turnover += turnover
+            self.commission += turnover * rate                            # 成交价 × 成交手数 × 合约乘数 × 手续费率
+
+        # Net pnl takes account of commission and slippage cost
+        self.total_pnl = self.trading_pnl + self.holding_pnl
+        self.net_pnl = self.total_pnl - self.commission - self.slippage

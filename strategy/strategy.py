@@ -1,8 +1,13 @@
 
-from datastructure.object import TickData, BarData, OrderData, TradeData, StopOrder
+from datetime import datetime
+from core.engine import BaseEngine
+from core.event import Event
+from datastructure.object import TickData, BarData, OrderData, TradeData, SignalData
+from datastructure.constant import Direction
+from datastructure.definition import EVENT_STRATEGY
 from utils.utils_class import BarGenerator, ArrayManager
 
-class DoubleMaStrategy:
+class DoubleMaStrategy(BaseEngine):
     
     parameters = ["fast_window", "slow_window"]
     variables = ["fast_ma0", "fast_ma1", "slow_ma0", "slow_ma1"]
@@ -14,24 +19,24 @@ class DoubleMaStrategy:
     slow_ma0 = 0.0
     slow_ma1 = 0.0
 
-    def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
-        super().__init__(cta_engine, strategy_name, vt_symbol, setting)
+    def __init__(self, event_engine):
+        super().__init__(engine_name='strategy', event_engine=event_engine)
 
         self.bg = BarGenerator(self.on_bar)
         self.am = ArrayManager()
     
     def on_init(self) -> None:
         '''callback when strategy is inited'''
-        self.write_log("策略初始化")
+        self.output("策略初始化")
         self.load_tick(1)
     
     def on_start(self) -> None:
         '''callback when strategy is started'''
-        self.write_log("策略启动")
+        self.output("策略启动")
     
     def on_stop(self) -> None:
         '''callback when strategy is stopped'''
-        self.write_log("策略停止")
+        self.output("策略停止")
     
     def on_tick(self, tick: TickData) -> None:
         '''callback of new tick data update'''
@@ -55,18 +60,12 @@ class DoubleMaStrategy:
         cross_below = self.fast_ma0 < self.slow_ma0 and self.fast_ma1 > self.slow_ma1
 
         if cross_over:
-            if self.pos == 0:
-                self.buy(bar.close_price, 1)
-            elif self.pos < 0:
-                self.cover(bar.close_price, 1)
-                self.buy(bar.close_price, 1)
-        
+            signal: SignalData = SignalData(bar.datetime, Direction.LONG)
         elif cross_below:
-            if self.pos == 0:
-                self.short(bar.close_price, 1)
-            elif self.pos < 0:
-                self.sell(bar.close_price, 1)
-                self.short(bar.close_price, 1)
+            signal: SignalData = SignalData(bar.datetime, Direction.SHORT)
+        
+        self.on_signal(signal)
+
 
     def on_order(self, order: OrderData):
         """
@@ -80,10 +79,12 @@ class DoubleMaStrategy:
         """
         pass
 
-    def on_stop_order(self, stop_order: StopOrder):
-        """
-        Callback of stop order update.
-        """
-        pass
+    
+    def on_signal(self, signal: SignalData) -> None:
+        signal_event: Event = Event(EVENT_STRATEGY, signal)
+        self.event_engine.put(signal_event)
+        
+    def output(self, msg) -> None:
+        print(f"{datetime.now()} strategy: {msg}")
             
     

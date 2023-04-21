@@ -1,16 +1,15 @@
 from typing import Any, Dict, List, Optional, Callable
 from copy import copy
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 
 from core.event import Event, EventEngine
-from core.event import EVENT_TICK, EVENT_ORDER, EVENT_TRADE, EVENT_LOG
+from core.event import EVENT_TICK, EVENT_ORDER, EVENT_TRADE, EVENT_LOG, EVENT_REQUEST
 
 from datastructure.object import (TickData, OrderData, TradeData, PositionData, AccountData, 
                     ContractData, LogData, OrderRequest, CancelRequest, 
                     SubscribeRequest, HistoryRequest, Exchange, BarData)
 from datastructure.constant import Interval, Status, OrderType, Direction
 from datastructure.definition import INTERVAL_DELTA_MAP
-from gw.gateway import BaseGateway
 from db.database import get_database, BaseDatabase
 
 
@@ -18,11 +17,12 @@ from db.database import get_database, BaseDatabase
 class SimExchange:
     '''模拟交易所: 产生行情更新, 撮合交易'''
     def __init__(self, event_engine: EventEngine, start: datetime, end: datetime) -> None:
-        
-        self.gateway: BaseGateway = BaseGateway(event_engine, 'backtest')
+        self.gateway_name: str = 'backtesting'
+        self.event_engine: EventEngine = event_engine
         # 回测时间
         self.start: datetime = start
         self.end: datetime = end
+
         # 回测时间内所有行情数据
         self.history_data: List[TickData] = []
         # 所有订单
@@ -36,6 +36,12 @@ class SimExchange:
         self.tick: TickData = None
         self.datetime: datetime = None
 
+        # 记录每日盯市
+        self.daily_results: Dict[date, DailyResult] = {}
+        self.contract: ContractData
+        self.slippage: float
+        
+        
         self._tick_generator = self._generate_new_tick()
         self.register_event()
         
@@ -75,27 +81,28 @@ class SimExchange:
         else:
             self.tick = tick
             self.datetime = tick.datetime
-            self.gateway.on_tick(tick)
+            self.on_tick(tick)
         return self.tick
         
     
     def register_event(self) -> None:
-        self.gateway.event_engine.register(EVENT_TICK, self.process_tick_event)
+        self.event_engine.register(EVENT_TICK, self.process_tick_event)
+        self.event_engine.register(EVENT_REQUEST, self.process_order_request)
     
     
-    #### TODO 改用gateway
+
     def process_order_request(self, event: Event) -> None:
         '''接收订单, 订单状态为submitting'''
         order_req: OrderRequest = event.data
         self.limit_order_count += 1
-        order: OrderData = order_req.create_order_data(self.limit_order_count, self.gateway.gateway_name) # status=submitting
+        order: OrderData = order_req.create_order_data(self.limit_order_count, self.gateway_name) # status=submitting
         self.active_limit_orders[order.orderid] = order
         self.limit_orders[order.orderid] = order
-        submitting_order: OrderData = copy(order)
-        self.gateway.on_order(submitting_order)
+
 
     def process_tick_event(self, event: Event) -> None:
         self.cross_limit_order()
+        self.update_daily_close(event)
 
       
     def cross_limit_order(self) -> None:
@@ -117,7 +124,7 @@ class SimExchange:
             if order.status == Status.SUBMITTING:
                 order.status = Status.NOTTRADED
                 ntraded_order: OrderData = copy(order)
-                self.gateway.on_order(ntraded_order)
+                self.on_order(ntraded_order)
             # 尝试撮合该委托
             long_cross: bool = (
                 order.direction == Direction.LONG
@@ -135,8 +142,8 @@ class SimExchange:
             # 可以成交, 委托状态变为全部成交(这种适用于一次只下一手的情况)
             order.traded = order.order_volume
             order.status = Status.ALLTRADED
-            alltraded_order = copy(order)
-            self.gateway.on_order(alltraded_order)
+            alltraded_order: OrderData = copy(order)
+            self.on_order(alltraded_order)
             if order.orderid in self.active_limit_orders:
                 self.active_limit_orders.pop(order.orderid)
             
@@ -159,16 +166,161 @@ class SimExchange:
                 fill_price=trade_price,
                 fill_volume=order.traded,
                 datetime=self.datetime,
-                gateway_name=self.gateway.gateway_name
             )
             self.trades[trade.tradeid] = trade
-            trade = copy(trade)
-            self.gateway.on_trade(trade)
+            trade: TradeData = copy(trade)
+            self.on_trade(trade)
             
+    def update_daily_close(self, event: Event) -> None:
+        tick: TickData = event.data
+        d: date = tick.datetime.date()
+        daily_result: Optional[DailyResult] = self.daily_results.get(d, None)
+        if daily_result:
+            daily_result.close_price = tick.last_price      ####TODO 最新价 != 结算价
+        else:
+            self.daily_results[d] = DailyResult(d, tick.last_price)
     
+    def calculate_results(self) -> None:
+        '''计算整个回测的每日盯市结果'''
+        if self.trade_count == 0:
+            return 
+        for trade in self.trades.values():
+            d: date = trade.datetime.date
+            daily_result: DailyResult = self.daily_results[d]
+            daily_result.add_trade(trade)
+        
+        # 计算结果
+        pre_close = 0
+        start_pos = 0
+
+        for daily_result in self.daily_results.values():
+            daily_result.calculate_pnl(pre_close, start_pos, self.contract.size, self.contract.commission_rate, self.slippage)
+            pre_close = daily_result.close_price
+            start_pos = daily_result.end_pos
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # 以下为向事件队列中放入各种事件
+    def on_event(self, type: str, data: Any = None) -> None:
+        '''
+        向event_engine的事件队列中放入事件
+        '''
+        event: Event = Event(type, data)
+        self.event_engine.put(event)
     
+    def on_tick(self, tick: TickData) -> None:
+        '''
+        行情更新
+        '''
+        self.on_event(EVENT_TICK, tick)
+        
+
+    def on_trade(self, trade: TradeData) -> None:
+        '''
+        成交更新
+        '''
+        self.on_event(EVENT_TRADE, trade)
+        
+    
+    def on_order(self, order: OrderData) -> None:
+        '''
+        订单状态更新
+        '''
+        self.on_event(EVENT_ORDER, order)
+        
+
+    def on_log(self, log: LogData) -> None:
+        """
+        向event_engine的事件队列中放入日志记录事件(Log event)
+        """
+        self.on_event(EVENT_LOG, log)
+
     
     def output(self, msg) -> None:
         print(f"{datetime.now()} simExchange: {msg}" )
+
+
+
+class DailyResult:
+    """
+    https://zhuanlan.zhihu.com/p/267211216
+    """
+
+    def __init__(self, date: date, close_price: float) -> None:
+        """"""
+        self.date: date = date
+        self.close_price: float = close_price   # 当日结算价
+        self.pre_close: float = 0               # 昨日结算价
+
+        self.trades: List[TradeData] = []
+        self.trade_count: int = 0
+
+        self.start_pos = 0                      # 
+        self.end_pos = 0                        # 
+
+        self.turnover: float = 0
+        self.commission: float = 0
+        self.slippage: float = 0
+
+        self.trading_pnl: float = 0             # 
+        self.holding_pnl: float = 0             # 
+        self.total_pnl: float = 0
+        self.net_pnl: float = 0
+
+    def add_trade(self, trade: TradeData) -> None:
+        """"""
+        self.trades.append(trade)
+
+    def calculate_pnl(
+        self,
+        pre_close: float,
+        start_pos: float,
+        size: int,
+        rate: float,
+        slippage: float
+    ) -> None:
+        """"""
+        self.start_pos = start_pos # 开盘仓位
+        self.end_pos = start_pos   # 收盘仓位
+        self.pre_close = pre_close # 昨日结算价
+        
+        self.holding_pnl = self.start_pos * (self.close_price - self.pre_close) * size  # 持仓盈亏 
+        
+        self.trade_count = len(self.trades)
+        for trade in self.trades:
+            if trade.direction == Direction.LONG:
+                pos_change = trade.fill_volume
+            else:
+                pos_change = -trade.fill_volume
+            self.end_pos += pos_change      # 收盘仓位
+            turnover: float = trade.fill_volume * size * trade.fill_price # 成交价 × 成交手数 × 合约乘数
+            self.trading_pnl += pos_change * (self.close_price - trade.fill_price) * size # 平仓盈亏
+            self.slippage += trade.fill_volume * size * slippage  # 滑点
+            self.turnover += turnover
+            self.commission += turnover * rate  # 成交价 × 成交手数 × 合约乘数 × 手续费率
+
+        self.total_pnl = self.trading_pnl + self.holding_pnl
+        self.net_pnl = self.total_pnl - self.commission - self.slippage
