@@ -44,7 +44,7 @@ class EventEngine:
                 event: Event = self._queue.get(block=True, timeout=1)
                 self._process(event)
             except Empty:
-                print("事件队列为空")
+                # print("事件队列为空")
                 self._active = False
 
     def _process(self, event: Event) -> None:

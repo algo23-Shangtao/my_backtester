@@ -227,7 +227,7 @@ class OrderRequest:
     symbol: str
     exchange: Exchange
     direction: Direction
-    
+    datetime: datetime
     volume: float
     price: float
     offset: Offset
@@ -239,6 +239,7 @@ class OrderRequest:
             symbol=self.symbol,
             exchange=self.exchange,
             orderid=orderid,
+            datetime=self.datetime,
             type=self.type,
             direction=self.direction,
             offset=self.offset,

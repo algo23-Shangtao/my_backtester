@@ -5,10 +5,9 @@ from .engine import BaseEngine
 from .event import EventEngine, Event
 from datastructure.object import TickData, SignalData, BarData, OrderData, TradeData, ContractData, SubscribeRequest
 from datastructure.constant import Exchange
-from strategy.strategy import DoubleMaStrategy
+from strategy.buy_and_hold_strategy import BuyAndHoldStrategy
 from oms.omsEngine import OmsEngine
 from exchange.simExchange import SimExchange
-from strategy.strategy import DoubleMaStrategy
 from datastructure.definition import EVENT_TICK
 
 
@@ -39,9 +38,9 @@ class BacktestEngine(BaseEngine):
 
         # 回测系统组件
         
-        self.sim_exchange: SimExchange = SimExchange(self.event_engine, start, end)
-        self.strategy: DoubleMaStrategy = DoubleMaStrategy(self.event_engine)
-        self.oms: OmsEngine = OmsEngine(self.event_engine)
+        self.sim_exchange = SimExchange(self.event_engine, start, end, contract)
+        self.strategy = BuyAndHoldStrategy(self.event_engine)
+        self.oms = OmsEngine(self.event_engine, contract)
 
         # contractdata
         self.contract: ContractData = contract
@@ -53,18 +52,21 @@ class BacktestEngine(BaseEngine):
         self.risk_free: float = risk_free
         self.annual_days: int = annual_days
 
-    def print_tick(event: Event) -> None:
-        tick: TickData = event.data
-        print(tick.last_price)
-
 
     def run_backtest(self) -> None:
-        self.event_engine.register(EVENT_TICK, self.print_tick)
-        self.sim_exchange.load_history_data('rb2305', Exchange("SHFE"))
+        self.sim_exchange.load_small_data('rb2305', Exchange("SHFE"))
 
         while True:
-            self.sim_exchange.publish_md()
-            self.event_engine.start()
+            tick = self.sim_exchange.publish_md()
+            if tick:
+                self.event_engine.start()
+            else:
+                self.event_engine.stop()
+                break
+        
+        print(self.sim_exchange.calculate_results())
+        
+
 
     
 

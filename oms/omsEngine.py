@@ -17,10 +17,10 @@ from datastructure.object import (CancelRequest, LogData, OrderRequest,
 class OmsEngine(BaseEngine):
     '''
     '''
-    def __init__(self, event_engine: EventEngine) -> None:
+    def __init__(self, event_engine: EventEngine, contract) -> None:
         super(OmsEngine, self).__init__(event_engine, "oms")
         # 内部信息
-        self.contract: ContractData
+        self.contract: ContractData = contract
         self.ticks: List[TickData] = []        # 记录最新的tick
         self.active_orders: Dict[str, OrderData] = {} # {orderid: order}
         self.orders: Dict[str, OrderData] = {} # {orderid: order} # 记录所有订单
@@ -41,52 +41,68 @@ class OmsEngine(BaseEngine):
 
     
     def process_tick_event(self, event: Event) -> None:
+        self.output('处理行情更新')
         tick: TickData = event.data
         self.ticks.append(tick)
 
     def process_signal_event(self, event: Event) -> None:
+        self.output('处理信号更新')
         signal: SignalData = event.data
+        symbol = self.contract.symbol
+        exchange = self.contract.exchange
+        direction = signal.direction
+        datetime = signal.datetime
+        price = 10000
         
         long_pos: PositionData = self.positions.get(f"{self.contract.symbol}.{Direction.LONG}", None)
         short_pos: PositionData = self.positions.get(f"{self.contract.symbol}.{Direction.SHORT}", None)
 
-        if signal.direction == Direction.LONG: # 多仓信号
+        if signal.direction == Direction.LONG: # 多仓信号 - 反手开仓
             if short_pos:   # 平空仓
-                req: OrderRequest = OrderRequest(self.contract.symbol, 
-                                                 self.contract.exchange, 
-                                                 signal.direction, 
+                req: OrderRequest = OrderRequest(symbol, 
+                                                 exchange, 
+                                                 direction,
+                                                 datetime,
                                                  short_pos.all_volume,
-                                                 self.ticks[-1].last_price,
+                                                 price,
                                                  Offset.CLOSE)
                 self.on_order_request(req)
+                self.output('发生平空仓请求')
             if not long_pos:    # 开多仓
-                req: OrderRequest = OrderRequest(self.contract.symbol,
-                                                 self.contract.exchange,
-                                                 signal.direction,
+                req: OrderRequest = OrderRequest(symbol,
+                                                 exchange,
+                                                 direction,
+                                                 datetime,
                                                  1,
-                                                 self.ticks[-1].last_price,
+                                                 price,
                                                  Offset.OPEN)
                 self.on_order_request(req)
+                self.output('发送开多仓请求')
         
-        if signal.direction == Direction.SHORT: # 空仓信号
+        if signal.direction == Direction.SHORT: # 空仓信号 - 反手空仓
             if long_pos:    # 平多仓
-                req: OrderRequest = OrderRequest(self.contract.symbol, 
-                                                 self.contract.exchange, 
-                                                 signal.direction, 
+                req: OrderRequest = OrderRequest(symbol, 
+                                                 exchange, 
+                                                 direction,
+                                                 datetime, 
                                                  long_pos.all_volume,
-                                                 self.ticks[-1].last_price,
+                                                 price,
                                                  Offset.CLOSE)
                 self.on_order_request(req)
+                self.output('发生平多仓请求')
             if not short_pos:   # 开空仓
-                req: OrderRequest = OrderRequest(self.contract.symbol,
-                                                 self.contract.exchange,
-                                                 signal.direction,
+                req: OrderRequest = OrderRequest(symbol,
+                                                 exchange,
+                                                 direction,
+                                                 datetime,
                                                  1,
-                                                 self.ticks[-1].last_price,
+                                                 price,
                                                  Offset.OPEN)
                 self.on_order_request(req)
+                self.output('发生开空仓请求')
     
     def process_order_event(self, event: Event) -> None:
+        self.output('处理订单更新')
         order: OrderData = event.data
         if order.is_active():
             self.active_orders[order.orderid] = order
@@ -95,13 +111,18 @@ class OmsEngine(BaseEngine):
             self.active_orders.pop(order.orderid)
         
     def process_trade_event(self, event: Event) -> None:
+        self.output('处理成交更新')
         trade: TradeData = event.data
-        positionid: str = f"{trade.symbol}.{trade.direction}"
+        
         if trade.offset == Offset.CLOSE:
+            direction = Direction.LONG if trade.direction == Direction.SHORT else Direction.SHORT
+            positionid: str = f"{trade.symbol}.{direction}"
             self.positions[positionid].all_volume -= trade.fill_volume
             if self.positions[positionid].all_volume <= 0:
                 self.positions.pop(positionid)
         if trade.offset == Offset.OPEN:
+            direction = trade.direction
+            positionid: str = f"{trade.symbol}.{trade.direction}"
             pos: PositionData = self.positions.get(positionid)
             if pos:
                 pos.all_volume += trade.fill_volume

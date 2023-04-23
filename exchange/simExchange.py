@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional
+from collections import defaultdict
 from copy import copy
 from datetime import datetime, date, timedelta
 
@@ -12,11 +13,12 @@ from datastructure.constant import Interval, Status, OrderType, Direction
 from datastructure.definition import INTERVAL_DELTA_MAP
 from db.database import get_database, BaseDatabase
 
+from pandas import DataFrame
 
 
 class SimExchange:
     '''模拟交易所: 产生行情更新, 撮合交易'''
-    def __init__(self, event_engine: EventEngine, start: datetime, end: datetime) -> None:
+    def __init__(self, event_engine: EventEngine, start: datetime, end: datetime, contract: ContractData) -> None:
         self.gateway_name: str = 'backtesting'
         self.event_engine: EventEngine = event_engine
         # 回测时间
@@ -38,8 +40,8 @@ class SimExchange:
 
         # 记录每日盯市
         self.daily_results: Dict[date, DailyResult] = {}
-        self.contract: ContractData
-        self.slippage: float
+        self.contract: ContractData = contract
+        self.slippage: float = 0
         
         
         self._tick_generator = self._generate_new_tick()
@@ -68,6 +70,13 @@ class SimExchange:
             end = start + batch_size
         self.output('历史行情加载完成')
 
+    def load_small_data(self, symbol, exchange) -> None:
+        self.output('根据订阅合约, 加载小规模历史行情中')
+        self.history_data.clear()
+        db: BaseDatabase = get_database()
+        ticks: List[TickData] = db.load_tick_data(symbol, exchange, self.start, self.end)
+        self.history_data.extend(ticks)
+        self.output('小规模历史行情加载完成')
         
     def _generate_new_tick(self) -> TickData:
         for tick in self.history_data:
@@ -78,11 +87,14 @@ class SimExchange:
             tick: TickData = next(self._tick_generator)
         except StopIteration:
             self.output('历史数据回放完成')
+            return
+            
         else:
             self.tick = tick
             self.datetime = tick.datetime
             self.on_tick(tick)
-        return self.tick
+            return tick
+        
         
     
     def register_event(self) -> None:
@@ -93,6 +105,9 @@ class SimExchange:
 
     def process_order_request(self, event: Event) -> None:
         '''接收订单, 订单状态为submitting'''
+        
+        self.output('处理订单请求')
+
         order_req: OrderRequest = event.data
         self.limit_order_count += 1
         order: OrderData = order_req.create_order_data(self.limit_order_count, self.gateway_name) # status=submitting
@@ -101,6 +116,9 @@ class SimExchange:
 
 
     def process_tick_event(self, event: Event) -> None:
+
+        self.output('处理行情更新')
+        
         self.cross_limit_order()
         self.update_daily_close(event)
 
@@ -112,6 +130,7 @@ class SimExchange:
         若成交, 则产生成交信息TradeData, 执行策略on trade回调
 
         '''
+        self.output('订单尝试撮合')
         # 由最新行情数据得到成交价
         long_cross_price = self.tick.ask_price_1 # 可成交的买价的下限-卖1价
         short_cross_price = self.tick.bid_price_1 # 可成交的卖价的上限-买1价
@@ -150,10 +169,10 @@ class SimExchange:
             # 产生成交事件
             self.trade_count += 1
             if long_cross:
-                trade_price = min(order.order_price, long_best_price)
+                trade_price = long_best_price
                 # pos_change = order.volume
-            else:
-                trade_price = max(order.order_price, short_best_price)
+            if short_cross:
+                trade_price = short_best_price
                 # pos_change = -order.volume
             
             trade: TradeData = TradeData(
@@ -170,6 +189,8 @@ class SimExchange:
             self.trades[trade.tradeid] = trade
             trade: TradeData = copy(trade)
             self.on_trade(trade)
+            self.output('订单撮合成功')
+        
             
     def update_daily_close(self, event: Event) -> None:
         tick: TickData = event.data
@@ -185,7 +206,7 @@ class SimExchange:
         if self.trade_count == 0:
             return 
         for trade in self.trades.values():
-            d: date = trade.datetime.date
+            d: date = trade.datetime.date()
             daily_result: DailyResult = self.daily_results[d]
             daily_result.add_trade(trade)
         
@@ -197,29 +218,17 @@ class SimExchange:
             daily_result.calculate_pnl(pre_close, start_pos, self.contract.size, self.contract.commission_rate, self.slippage)
             pre_close = daily_result.close_price
             start_pos = daily_result.end_pos
+        
+        # Generate dataframe
+        results: defaultdict = defaultdict(list)
 
+        for daily_result in self.daily_results.values():
+            for key, value in daily_result.__dict__.items():
+                results[key].append(value)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        self.daily_df = DataFrame.from_dict(results).set_index("date")
+        return self.daily_df
+        
 
 
 
@@ -228,6 +237,8 @@ class SimExchange:
         '''
         向event_engine的事件队列中放入事件
         '''
+        self.output(f'放入事件{data}')
+
         event: Event = Event(type, data)
         self.event_engine.put(event)
     
