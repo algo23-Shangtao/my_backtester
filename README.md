@@ -24,3 +24,17 @@
 1.管理仓位&账户  
 2.产生下单信号  
 
+
+
+dataengine -> tickdata -> event -> strategy -> signal -> oms -> excution
+
+0.看半成品
+1.买入并持有-》双均线
+2.risk manager
+3.algo
+4.tca
+5.可视化
+6.部分成交
+7.GUI
+8.PPT
+
