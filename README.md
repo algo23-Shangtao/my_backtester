@@ -28,7 +28,7 @@
 
 dataengine -> tickdata -> event -> strategy -> signal -> oms -> excution
 
-0.看半成品
+0.看半成品, 移动数据库、换数据
 1.买入并持有-》双均线
 2.risk manager
 3.algo
