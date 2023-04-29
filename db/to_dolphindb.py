@@ -241,15 +241,6 @@ class Database(BaseDatabase):
         return list_of_tickoverview
         
 
-    
-
-
-
-
-
-
-
-
     def _save_all_history_tickdata(self) -> bool:
         '''
         写入文件夹中历史数据---只可写入一次!
