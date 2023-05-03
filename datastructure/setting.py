@@ -15,7 +15,7 @@ SETTING: Dict[str, Any] = {
 
     # database
     "database.timezone": get_localzone_name(),
-    "database.host": "localhost", # 数据库地址
+    "database.host": "121.37.81.170", # 数据库地址
     "database.port": 8848, # 数据库端口
     "database.user": "admin", # 用户名
     "database.password": "123456", # 密码
